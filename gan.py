@@ -55,6 +55,7 @@ class GAN():
 
 
 		model = Sequential()
+
 		# try to change strides to 1 
 		# try kernel_size of 3 
 		# imagenet
@@ -63,20 +64,21 @@ class GAN():
 		# use max pooling
 		# use padding as valid in encoder part
 		# try to use sigmoid in place of tanh in output layer
+
 		# Encoder
-		model.add(Conv2D(64, kernel_size=4, strides=1, input_shape=self.img_shape, padding="same"))
+		model.add(Conv2D(64, kernel_size=4, strides=2, input_shape=self.img_shape, padding="same"))
 		model.add(Activation('relu'))
-		model.add(Conv2D(128, kernel_size=4, strides=1, padding="same"))
+		model.add(Conv2D(256, kernel_size=4, strides=2, padding="same"))
 		model.add(Activation('relu'))
-		model.add(Conv2D(256, kernel_size=4, strides=1, padding="same"))
+		model.add(Conv2D(512, kernel_size=4, strides=2, padding="same"))
 		model.add(Activation('relu'))
 
 		# Decoder
 		model.add(UpSampling2D())
-		model.add(Conv2D(128, kernel_size=4, padding="same"))
+		model.add(Conv2D(256, kernel_size=4, padding="same"))
 		model.add(Activation('relu'))
 		model.add(UpSampling2D())
-		model.add(Conv2D(64, kernel_size=4, padding="same"))
+		model.add(Conv2D(128, kernel_size=4, padding="same"))
 		model.add(Activation('relu'))
 		model.add(UpSampling2D())
 		model.add(Conv2D(self.channels, kernel_size=4, padding="same"))
@@ -135,7 +137,7 @@ class GAN():
 
 		# Load the dataset
 		(X_train, _), (_, _) = cifar10.load_data()
-		# change the rescaling to 0 to 1
+
 		# Rescale -1 to 1
 		X_train = X_train / 255
 		X_train = 2 * X_train - 1
@@ -159,15 +161,10 @@ class GAN():
 
 			valid = np.ones((half_batch, 1))
 			fake = np.zeros((half_batch, 1))
-
-			self.discriminator.trainable = True
 			# Train the discriminator
 			d_loss_real = self.discriminator.train_on_batch(imgs, valid)
 			d_loss_fake = self.discriminator.train_on_batch(gen_imgs, fake)
 			d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
-
-			self.discriminator.trainable = False
-
 
 			# training the generator
 
@@ -205,7 +202,6 @@ class GAN():
 if __name__ == '__main__':
     gan = GAN()
     gan.train(epochs=200000, batch_size=32, save_interval=200)
-
 
 
 
