@@ -3,10 +3,10 @@ from __future__ import print_function
 from keras.datasets import cifar10
 from keras.layers import Input, Dense, Reshape, Flatten, Dropout, multiply, GaussianNoise
 from keras.layers import BatchNormalization, Activation, Embedding, ZeroPadding2D
-from keras.layers import MaxPooling2D
+from keras.layers import MaxPooling2D, GlobalAveragePooling2D
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.convolutional import UpSampling2D, Conv2D
-from keras.models import Sequential, Model
+from keras.models import Sequential, Model, load_model
 from keras.optimizers import Adam
 from keras.initializers import Initializer
 from keras import losses
@@ -15,6 +15,7 @@ import keras.backend as K
 from keras.callbacks import TensorBoard, ModelCheckpoint
 from keras.utils import np_utils # utilities for one-hot encoding of ground truth values
 import matplotlib.pyplot as plt
+from keras.preprocessing.image import ImageDataGenerator
 
 import numpy as np
 
@@ -115,32 +116,33 @@ class GAN():
 	def cnn_predict(self):
 	    
 	    model = Sequential()
-	    self.no_classes = 10
+	    # self.no_classes = 10
 	    
-	    model.add(Conv2D(32, (3, 3), activation='relu', padding='same', input_shape=self.img_shape))    
-	    model.add(Conv2D(32, (3, 3), activation='relu'))    
-	    model.add(MaxPooling2D(pool_size=(2, 2)))
-	    model.add(Dropout(0.25))
-
+	    model.add(Conv2D(96, (3, 3), activation='relu', padding = 'same', input_shape=self.img_shape))    
+	    model.add(Dropout(0.2))
 	    
-	    model.add(Conv2D(64, (3, 3), activation='relu', padding='same'))    
-	    model.add(Conv2D(64, (3, 3), activation='relu'))
-	    model.add(MaxPooling2D(pool_size=(2, 2)))
-	    model.add(Dropout(0.25))
-
-	    model.add(Flatten())
-	    
-	    model.add(Dense(512, activation='relu'))
+	    model.add(Conv2D(96, (3, 3), activation='relu', padding = 'same'))  
+	    model.add(Conv2D(96, (3, 3), activation='relu', padding = 'same', strides = 2))    
 	    model.add(Dropout(0.5))
 	    
-	    model.add(Dense(self.no_classes, activation='softmax'))
+	    model.add(Conv2D(192, (3, 3), activation='relu', padding = 'same'))    
+	    model.add(Conv2D(192, (3, 3), activation='relu', padding = 'same'))
+	    model.add(Conv2D(192, (3, 3), activation='relu', padding = 'same', strides = 2))    
+	    model.add(Dropout(0.5))    
 	    
+	    model.add(Conv2D(192, (3, 3), padding = 'same'))
+	    model.add(Activation('relu'))
+	    model.add(Conv2D(192, (1, 1),padding='valid'))
+	    model.add(Activation('relu'))
+	    model.add(Conv2D(10, (1, 1), padding='valid'))
+
+	    model.add(GlobalAveragePooling2D())
+	    
+	    model.add(Activation('softmax'))
+
 	    model.summary()
-	    
+
 	    return model
-
-
-
 	def train_generate(self , epochs , batch_size = 128 , save_interval = 200): 
 
 		(x_train , _ ), (_ , _) = cifar10.load_data()
@@ -187,33 +189,92 @@ class GAN():
 			if epoch % save_interval == 0:
 			    self.save_imgs(epoch)
 
-	def train_predict_labels(self, epochs, batch_size=128, data_augmentation=False):
+
+	def data_preprocessing_cifar(self):
+		(X_train, y_train), (X_test, y_test) = cifar10.load_data() # fetch CIFAR-10 data
+
+		num_train, height, width, depth = X_train.shape # there are 50000 training examples in CIFAR-10 
+		num_test = X_test.shape[0] # there are 10000 test examples in CIFAR-10
+		num_classes = np.unique(y_train).shape[0] # there are 10 image classes
+
+		X_train = X_train.astype('float32') 
+		X_test = X_test.astype('float32')
+		X_train /= np.max(X_train) # Normalise data to [0, 1] range
+		X_test /= np.max(X_test) # Normalise data to [0, 1] range
+
+		Y_train = np_utils.to_categorical(y_train, num_classes) # One-hot encode the labels
+		Y_test = np_utils.to_categorical(y_test, num_classes) # One-hot encode the labels
+
+		return (X_train, Y_train),(X_test, Y_test)
 
 
+	def train_predict_labels(self, epochs, batch_size=128, data_augmentation="None"):
 
-		if data_augmentation==False:
-			(X_train, y_train), (X_test, y_test) = cifar10.load_data() # fetch CIFAR-10 data
 
-			num_train, height, width, depth = X_train.shape # there are 50000 training examples in CIFAR-10 
-			num_test = X_test.shape[0] # there are 10000 test examples in CIFAR-10
-			num_classes = np.unique(y_train).shape[0] # there are 10 image classes
+		(X_train, Y_train), (X_test, Y_test) = self.data_preprocessing_cifar()
 
-			X_train = X_train.astype('float32') 
-			X_test = X_test.astype('float32')
-			X_train /= np.max(X_train) # Normalise data to [0, 1] range
-			X_test /= np.max(X_test) # Normalise data to [0, 1] range
+		
+		if data_augmentation=="None":                          
+			checkpoint = ModelCheckpoint('model/normal/best_model.h5',  # model filename
+	                         monitor='val_loss', # quantity to monitor
+	                         verbose=0, # verbosity - 0 or 1
+	                         save_best_only= True, # The latest best model will not be overwritten
+	                         mode='auto') # The decision to overwrite model is made 
+	                                      # automatically depending on the quantity to monitor
 
-			Y_train = np_utils.to_categorical(y_train, num_classes) # One-hot encode the labels
-			Y_test = np_utils.to_categorical(y_test, num_classes) # One-hot encode the labels
+			tbCallBack = TensorBoard(log_dir='./Graph/normal', histogram_freq=0, write_graph=True, write_images=True)
+                              
+			model_details = self.predict_model.fit(X_train, Y_train,batch_size = batch_size, epochs=epochs,  validation_data= (X_test, Y_test),callbacks=[checkpoint,tbCallBack],verbose=1)
+		
+		elif data_augmentation=="With_Keras_Augmentation":
+			checkpoint = ModelCheckpoint('model/with_keras_aug/best_model_k.h5',  # model filename
+                 monitor='val_loss', # quantity to monitor
+                 verbose=0, # verbosity - 0 or 1
+                 save_best_only= True, # The latest best model will not be overwritten
+                 mode='auto') # The decision to overwrite model is made 
+                              # automatically depending on the quantity to monitor
 
-		checkpoint = ModelCheckpoint('model/best_model_simple.h5',  # model filename
-                         monitor='val_loss', # quantity to monitor
-                         verbose=0, # verbosity - 0 or 1
-                         save_best_only= True, # The latest best model will not be overwritten
-                         mode='auto') # The decision to overwrite model is made 
-                                      # automatically depending on the quantity to monitor
+			tbCallBack = TensorBoard(log_dir='./Graph/with_keras_aug', histogram_freq=0, write_graph=True, write_images=True)
 
-		model_details = self.predict_model.fit(X_train, Y_train,batch_size = batch_size, epochs=epochs,  validation_data= (X_test, Y_test),callbacks=[checkpoint],verbose=1)
+			# datagen = ImageDataGenerator(zoom_range=0.2, 
+   #                           horizontal_flip=True)
+			
+
+			datagen = ImageDataGenerator(
+			    featurewise_center=False,  # set input mean to 0 over the dataset
+			    samplewise_center=False,  # set each sample mean to 0
+			    featurewise_std_normalization=False,  # divide inputs by std of the dataset
+			    samplewise_std_normalization=False,  # divide each input by its std
+			    zca_whitening=False,  # apply ZCA whitening
+			    rotation_range=45,  # randomly rotate images in the range (degrees, 0 to 180)
+			    width_shift_range=0.2,  # randomly shift images horizontally (fraction of total width)
+			    height_shift_range=0.2,  # randomly shift images vertically (fraction of total height)
+			    horizontal_flip=True,  # randomly flip images
+			    vertical_flip=False)  # randomly flip images
+			model_info = self.predict_model.fit_generator(datagen.flow(X_train, Y_train, batch_size = batch_size),
+                                 samples_per_epoch = X_train.shape[0], nb_epoch = epochs, 
+                                 validation_data = (X_test, Y_test), callbacks=[checkpoint,tbCallBack], verbose=1)
+
+		elif data_augmentation=="With_Gan_Augmentation":
+
+			checkpoint = ModelCheckpoint('model/best_model_simple_with_gan_augmentation.h5',  # model filename
+                 monitor='val_loss', # quantity to monitor
+                 verbose=0, # verbosity - 0 or 1
+                 save_best_only= True, # The latest best model will not be overwritten
+                 mode='auto') # The decision to overwrite model is made 
+                              # automatically depending on the quantity to monitor
+
+
+	
+	def predict_labels(self, path="model/best_model_simple.h5",batch_size=128):
+
+		(X_train, Y_train), (X_test, Y_test) = self.data_preprocessing_cifar()
+		model = load_model(path)
+
+		loss , acc = model.evaluate(X_test, Y_test, batch_size = batch_size, verbose=1)
+
+
+		print('\nTesting loss: {}, acc: {}\n'.format(loss, acc))
 
 
 	def save_imgs(self, epoch):
@@ -226,4 +287,5 @@ class GAN():
 			plt.subplot(r,c,i+1)
 			plt.imshow(data[i])
 			# plt.show()
-		plt.savefig("gan/images/cifar10_%d.png" % epoch)
+		plt.savefig("gan/image2/cifar10_%d.png" % epoch)
+
